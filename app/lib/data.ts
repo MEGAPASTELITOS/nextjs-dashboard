@@ -7,25 +7,21 @@ import {
   LatestInvoiceRaw,
   User,
   Revenue,
+  LatestInvoice,
+  Customer,
 } from './definitions';
 import { formatCurrency } from './utils';
+import axios from 'axios';
 
 export async function fetchRevenue() {
   // Add noStore() here to prevent the response from being cached.
   // This is equivalent to in fetch(..., {cache: 'no-store'}).
 
   try {
-    // Artificially delay a response for demo purposes.
-    // Don't do this in production :)
+ 
+    const revenue = await axios.get("https://nest-dashboar.onrender.com/revenue")
 
-    // console.log('Fetching revenue data...');
-    // await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    const data = await sql<Revenue>`SELECT * FROM revenue`;
-
-    // console.log('Data fetch completed after 3 seconds.');
-
-    return data.rows;
+    return revenue.data;
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch revenue data.');
@@ -34,17 +30,15 @@ export async function fetchRevenue() {
 
 export async function fetchLatestInvoices() {
   try {
-    const data = await sql<LatestInvoiceRaw>`
-      SELECT invoices.amount, customers.name, customers.image_url, customers.email, invoices.id
-      FROM invoices
-      JOIN customers ON invoices.customer_id = customers.id
-      ORDER BY invoices.date DESC
-      LIMIT 5`;
+    const data = await axios.get("https://nest-dashboar.onrender.com/invoices")
+    const invoices:LatestInvoiceRaw[] = data.data
 
-    const latestInvoices = data.rows.map((invoice) => ({
+
+    const latestInvoices = invoices.map((invoice) => ({
       ...invoice,
       amount: formatCurrency(invoice.amount),
     }));
+
     return latestInvoices;
   } catch (error) {
     console.error('Database Error:', error);
@@ -54,32 +48,36 @@ export async function fetchLatestInvoices() {
 
 export async function fetchCardData() {
   try {
-    // You can probably combine these into a single SQL query
-    // However, we are intentionally splitting them to demonstrate
-    // how to initialize multiple queries in parallel with JS.
-    const invoiceCountPromise = sql`SELECT COUNT(*) FROM invoices`;
-    const customerCountPromise = sql`SELECT COUNT(*) FROM customers`;
-    const invoiceStatusPromise = sql`SELECT
-         SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
-         SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
-         FROM invoices`;
+    
+    const dataInvoices = await axios.get("https://nest-dashboar.onrender.com/invoices")
+    const invoices:LatestInvoice[] = await dataInvoices.data
 
-    const data = await Promise.all([
-      invoiceCountPromise,
-      customerCountPromise,
-      invoiceStatusPromise,
-    ]);
+    const customerData = await axios.get("https://nest-dashboar.onrender.com/customers")
+    const customer:Customer[] = await customerData.data
 
-    const numberOfInvoices = Number(data[0].rows[0].count ?? '0');
-    const numberOfCustomers = Number(data[1].rows[0].count ?? '0');
-    const totalPaidInvoices = formatCurrency(data[2].rows[0].paid ?? '0');
-    const totalPendingInvoices = formatCurrency(data[2].rows[0].pending ?? '0');
+    const InvoicesDataPain = await axios.get("https://nest-dashboar.onrender.com/invoices?status=PAID")
+    const invoicesPaid:LatestInvoice[] = await InvoicesDataPain.data
 
+    const InvoicesDataPending = await axios.get("https://nest-dashboar.onrender.com/invoices?status=PENDING")
+    const invoicesPending:LatestInvoice[] = await InvoicesDataPending.data
+
+    let invoicesPaidNumber = 0;
+    invoicesPaid.forEach(invoice => {
+      invoicesPaidNumber += Number(invoice.amount);
+    });
+    
+    let invoicesPendingNumber = 0;
+    invoicesPending.forEach(invoice => {
+      invoicesPendingNumber += Number(invoice.amount);
+    });
+
+    const numberOfCustomer = customer.length;
+    const numberOfInvoices = invoices.length;
     return {
-      numberOfCustomers,
+      numberOfCustomer,
       numberOfInvoices,
-      totalPaidInvoices,
-      totalPendingInvoices,
+      invoicesPaidNumber,
+      invoicesPendingNumber,
     };
   } catch (error) {
     console.error('Database Error:', error);
@@ -118,7 +116,7 @@ export async function fetchFilteredInvoices(
 
     return invoices.rows;
   } catch (error) {
-    console.error('Database Error:', error);
+    console.error('Database Error:', await error);
     throw new Error('Failed to fetch invoices.');
   }
 }
