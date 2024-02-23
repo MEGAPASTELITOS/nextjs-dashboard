@@ -20,7 +20,6 @@ export async function fetchRevenue() {
   try {
  
     const revenue = await axios.get("https://nest-dashboar.onrender.com/revenue")
-
     return revenue.data;
   } catch (error) {
     console.error('Database Error:', error);
@@ -31,7 +30,7 @@ export async function fetchRevenue() {
 export async function fetchLatestInvoices() {
   try {
     const data = await axios.get("https://nest-dashboar.onrender.com/invoices")
-    const invoices:LatestInvoiceRaw[] = data.data
+    const invoices:LatestInvoiceRaw[] = data.data.data
 
 
     const latestInvoices = invoices.map((invoice) => ({
@@ -50,16 +49,16 @@ export async function fetchCardData() {
   try {
     
     const dataInvoices = await axios.get("https://nest-dashboar.onrender.com/invoices")
-    const invoices:LatestInvoice[] = await dataInvoices.data
+    const invoices:LatestInvoice[] = await dataInvoices.data.data
 
     const customerData = await axios.get("https://nest-dashboar.onrender.com/customers")
     const customer:Customer[] = await customerData.data
 
     const InvoicesDataPain = await axios.get("https://nest-dashboar.onrender.com/invoices?status=PAID")
-    const invoicesPaid:LatestInvoice[] = await InvoicesDataPain.data
+    const invoicesPaid:LatestInvoice[] = await InvoicesDataPain.data.data
 
     const InvoicesDataPending = await axios.get("https://nest-dashboar.onrender.com/invoices?status=PENDING")
-    const invoicesPending:LatestInvoice[] = await InvoicesDataPending.data
+    const invoicesPending:LatestInvoice[] = await InvoicesDataPending.data.data
 
     let invoicesPaidNumber = 0;
     invoicesPaid.forEach(invoice => {
@@ -93,28 +92,16 @@ export async function fetchFilteredInvoices(
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
   try {
-    const invoices = await sql<InvoicesTable>`
-      SELECT
-        invoices.id,
-        invoices.amount,
-        invoices.date,
-        invoices.status,
-        customers.name,
-        customers.email,
-        customers.image_url
-      FROM invoices
-      JOIN customers ON invoices.customer_id = customers.id
-      WHERE
-        customers.name ILIKE ${`%${query}%`} OR
-        customers.email ILIKE ${`%${query}%`} OR
-        invoices.amount::text ILIKE ${`%${query}%`} OR
-        invoices.date::text ILIKE ${`%${query}%`} OR
-        invoices.status ILIKE ${`%${query}%`}
-      ORDER BY invoices.date DESC
-      LIMIT ${ITEMS_PER_PAGE} OFFSET ${offset}
-    `;
+    if(query){
+      const response = await axios.get(`https://nest-dashboar.onrender.com/invoices?take=${ITEMS_PER_PAGE}&skip=${offset}&name=${query}`)
+      const  invoices:LatestInvoice[] = response.data.data
+      return  invoices;
+    }
 
-    return invoices.rows;
+    const response = await axios.get(`https://nest-dashboar.onrender.com/invoices?take=${ITEMS_PER_PAGE}&skip=${offset}`)
+    const  invoices:LatestInvoice[] = response.data.data
+
+    return  invoices;
   } catch (error) {
     console.error('Database Error:', await error);
     throw new Error('Failed to fetch invoices.');
@@ -123,18 +110,9 @@ export async function fetchFilteredInvoices(
 
 export async function fetchInvoicesPages(query: string) {
   try {
-    const count = await sql`SELECT COUNT(*)
-    FROM invoices
-    JOIN customers ON invoices.customer_id = customers.id
-    WHERE
-      customers.name ILIKE ${`%${query}%`} OR
-      customers.email ILIKE ${`%${query}%`} OR
-      invoices.amount::text ILIKE ${`%${query}%`} OR
-      invoices.date::text ILIKE ${`%${query}%`} OR
-      invoices.status ILIKE ${`%${query}%`}
-  `;
-
-    const totalPages = Math.ceil(Number(count.rows[0].count) / ITEMS_PER_PAGE);
+  const dataInvoices = await axios.get(`https://nest-dashboar.onrender.com/invoices?name=${query}`)
+  console.log(dataInvoices)
+    const totalPages = Math.ceil(Number(dataInvoices.data.length) / ITEMS_PER_PAGE);
     return totalPages;
   } catch (error) {
     console.error('Database Error:', error);
@@ -144,23 +122,11 @@ export async function fetchInvoicesPages(query: string) {
 
 export async function fetchInvoiceById(id: string) {
   try {
-    const data = await sql<InvoiceForm>`
-      SELECT
-        invoices.id,
-        invoices.customer_id,
-        invoices.amount,
-        invoices.status
-      FROM invoices
-      WHERE invoices.id = ${id};
-    `;
+    const dataInvoices = await axios.get(`https://nest-dashboar.onrender.com/invoices/${id}`)
 
-    const invoice = data.rows.map((invoice) => ({
-      ...invoice,
-      // Convert amount from cents to dollars
-      amount: invoice.amount / 100,
-    }));
+    const invoice = dataInvoices.data.data.amount = dataInvoices.data.data.amount / 100
 
-    return invoice[0];
+    return invoice
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch invoice.');
@@ -169,15 +135,9 @@ export async function fetchInvoiceById(id: string) {
 
 export async function fetchCustomers() {
   try {
-    const data = await sql<CustomerField>`
-      SELECT
-        id,
-        name
-      FROM customers
-      ORDER BY name ASC
-    `;
+    const data = await axios.get(`https://nest-dashboar.onrender.com/customers`)
 
-    const customers = data.rows;
+    const customers = data.data;
     return customers;
   } catch (err) {
     console.error('Database Error:', err);
@@ -187,31 +147,15 @@ export async function fetchCustomers() {
 
 export async function fetchFilteredCustomers(query: string) {
   try {
-    const data = await sql<CustomersTableType>`
-		SELECT
-		  customers.id,
-		  customers.name,
-		  customers.email,
-		  customers.image_url,
-		  COUNT(invoices.id) AS total_invoices,
-		  SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
-		  SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
-		FROM customers
-		LEFT JOIN invoices ON customers.id = invoices.customer_id
-		WHERE
-		  customers.name ILIKE ${`%${query}%`} OR
-        customers.email ILIKE ${`%${query}%`}
-		GROUP BY customers.id, customers.name, customers.email, customers.image_url
-		ORDER BY customers.name ASC
-	  `;
+    const data:Customer[] = await axios.get(`https://nest-dashboar.onrender.com/customers`)
 
-    const customers = data.rows.map((customer) => ({
-      ...customer,
-      total_pending: formatCurrency(customer.total_pending),
-      total_paid: formatCurrency(customer.total_paid),
-    }));
-
-    return customers;
+    data.map(customer => {
+      return {
+        ...customer,
+        total_pending:0,
+        total_paid:0
+      }
+    })
   } catch (err) {
     console.error('Database Error:', err);
     throw new Error('Failed to fetch customer table.');
